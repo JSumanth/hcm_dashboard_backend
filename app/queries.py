@@ -41,3 +41,7 @@ FROM dashboard_shares ds
 JOIN employees e ON e.employee_id = ds.manager_id
 WHERE ds.dashboard_id = %s
 """
+
+get_employee_email = """
+SELECT name, email FROM employees WHERE employee_id = %s
+"""

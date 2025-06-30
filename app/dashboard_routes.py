@@ -1,7 +1,11 @@
+from uuid import uuid4
+import os
+import boto3
+import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from uuid import uuid4
-from app.db import get_connection
+from app.db import Database
+
 from app.helpers import calculate_metrics
 from app.queries import (
     get_dashboard_metadata,
@@ -13,6 +17,9 @@ from app.queries import (
 )
 
 router = APIRouter()
+db = Database()
+sqs_client = boto3.client("sqs")
+SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL")
 
 class CreateDashboardRequest(BaseModel):
     title: str
@@ -27,7 +34,7 @@ class ShareDashboardRequest(BaseModel):
 @router.post("/dashboard")
 def create_dashboard(payload: CreateDashboardRequest):
     dashboard_id = str(uuid4())
-    conn = get_connection()
+    conn = db.get_connection()
     try:
         metrics = calculate_metrics(conn, payload.department, payload.start_date, payload.end_date)
 
@@ -58,7 +65,7 @@ def create_dashboard(payload: CreateDashboardRequest):
         conn.close()
 @router.get("/dashboard/{dashboard_id}")
 def get_dashboard(dashboard_id: str):
-    conn = get_connection()
+    conn = db.get_connection()
     try:
         with conn.cursor() as cur:
             # Get dashboard metadata
@@ -95,11 +102,19 @@ def get_dashboard(dashboard_id: str):
 
 @router.post("/dashboard/{dashboard_id}/share")
 def share_dashboard(dashboard_id: str, payload: ShareDashboardRequest):
-    conn = get_connection()
+    conn = db.get_connection()
     try:
         with conn.cursor() as cur:
             for manager_id in payload.manager_ids:
                 cur.execute(insert_dashboard_share, (dashboard_id, manager_id))
+                # Enqueue SQS message
+                sqs_client.send_message(
+                    QueueUrl=SQS_QUEUE_URL,
+                    MessageBody=json.dumps({
+                        "dashboard_id": dashboard_id,
+                        "manager_id": manager_id
+                    })
+                )
         conn.commit()
         return {"dashboard_id": dashboard_id, "shared_with": payload.manager_ids}
     finally:
@@ -115,7 +130,7 @@ def check_health():
 def check_db_health():
     conn = None
     try:
-        conn = get_connection()
+        conn = db.get_connection()
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
             return {"db_healthy": True}
