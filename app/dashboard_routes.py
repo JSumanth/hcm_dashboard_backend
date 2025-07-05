@@ -4,10 +4,10 @@ import boto3
 import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.db import Database
+from db import Database
 
-from app.helpers import calculate_metrics
-from app.queries import (
+from helpers import calculate_metrics
+from queries import (
     get_dashboard_metadata,
     get_dashboard_metrics,
     get_shared_managers,
